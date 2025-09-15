@@ -1,6 +1,16 @@
 import { v } from "convex/values";
-import { mutation, query, action, internalAction, internalQuery } from "./_generated/server";
-import { requireCurrentUser, getCurrentUser, requireCurrentUserForAction } from "./helpers";
+import {
+  mutation,
+  query,
+  action,
+  internalAction,
+  internalQuery,
+} from "./_generated/server";
+import {
+  requireCurrentUser,
+  getCurrentUser,
+  requireCurrentUserForAction,
+} from "./helpers";
 import { internal, api } from "./_generated/api";
 
 // Get email configuration
@@ -40,10 +50,11 @@ export const updateEmailConfig = mutation({
       .first();
 
     const now = Date.now();
-    
+
     // Generate verification token
-    const verificationToken = Math.random().toString(36).substring(2, 15) + 
-                             Math.random().toString(36).substring(2, 15);
+    const verificationToken =
+      Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15);
     const verificationExpiry = now + 24 * 60 * 60 * 1000; // 24 hours
 
     if (existingConfig) {
@@ -67,11 +78,15 @@ export const updateEmailConfig = mutation({
     }
 
     // Schedule sending verification email
-    await ctx.scheduler.runAfter(0, internal.emailManager.sendVerificationEmail, {
-      email: args.email,
-      token: verificationToken,
-      userId: user._id,
-    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.emailManager.sendVerificationEmail,
+      {
+        email: args.email,
+        token: verificationToken,
+        userId: user._id,
+      },
+    );
 
     return { success: true, message: "Verification email sent" };
   },
@@ -91,28 +106,28 @@ export const sendVerificationEmail = internalAction({
       return;
     }
 
-    const verificationUrl = `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/api/verify-email?token=${args.token}`;
+    const verificationUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/verify-email?token=${args.token}`;
 
     try {
-      const response = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
         headers: {
-          'Authorization': `Bearer ${resendApiKey}`,
-          'Content-Type': 'application/json',
+          Authorization: `Bearer ${resendApiKey}`,
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          from: `${process.env.APP_NAME || 'Firecrawl Observer'} <${process.env.FROM_EMAIL || 'noreply@example.com'}>`,
+          from: `${process.env.APP_NAME || "Firecrawl Observer"} <${process.env.FROM_EMAIL || "noreply@example.com"}>`,
           to: args.email,
-          subject: 'Verify your email for Firecrawl Observer',
+          subject: "Verify your email for Firecrawl Observer",
           html: `
             <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 600px; margin: 0 auto;">
               <h2 style="color: #EA580C; margin-bottom: 24px;">Verify Your Email</h2>
               <p style="color: #374151; font-size: 16px; line-height: 24px; margin-bottom: 24px;">
-                Thank you for setting up email notifications with Firecrawl Observer. 
+                Thank you for setting up email notifications with Firecrawl Observer.
                 Please click the button below to verify your email address:
               </p>
-              <a href="${verificationUrl}" 
-                 style="display: inline-block; background-color: #EA580C; color: white; padding: 12px 24px; 
+              <a href="${verificationUrl}"
+                 style="display: inline-block; background-color: #EA580C; color: white; padding: 12px 24px;
                         text-decoration: none; border-radius: 6px; font-weight: 500;">
                 Verify Email
               </a>
@@ -174,7 +189,7 @@ export const verifyEmail = mutation({
 export const resendVerificationEmail = action({
   handler: async (ctx) => {
     const user = await requireCurrentUserForAction(ctx);
-    
+
     const config = await ctx.runQuery(api.emailManager.getEmailConfig, {});
 
     if (!config) {
@@ -186,8 +201,9 @@ export const resendVerificationEmail = action({
     }
 
     // Generate new token
-    const verificationToken = Math.random().toString(36).substring(2, 15) + 
-                             Math.random().toString(36).substring(2, 15);
+    const verificationToken =
+      Math.random().toString(36).substring(2, 15) +
+      Math.random().toString(36).substring(2, 15);
     const verificationExpiry = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
 
     await ctx.runMutation(api.emailManager.updateVerificationToken, {
@@ -196,11 +212,15 @@ export const resendVerificationEmail = action({
       expiry: verificationExpiry,
     });
 
-    await ctx.scheduler.runAfter(0, internal.emailManager.sendVerificationEmail, {
-      email: config.email,
-      token: verificationToken,
-      userId: user,
-    });
+    await ctx.scheduler.runAfter(
+      0,
+      internal.emailManager.sendVerificationEmail,
+      {
+        email: config.email,
+        token: verificationToken,
+        userId: user,
+      },
+    );
 
     return { success: true, message: "Verification email resent" };
   },

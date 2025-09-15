@@ -8,23 +8,30 @@ import { requireCurrentUserForAction } from "./helpers";
 // Initialize Firecrawl client with user's API key
 export const getFirecrawlClient = async (ctx: any, userId: string) => {
   // First try to get user's API key from internal query
-  const userKeyData = await ctx.runQuery(internal.firecrawlKeys.getDecryptedFirecrawlKey, { userId });
-  
+  const userKeyData = await ctx.runQuery(
+    internal.firecrawlKeys.getDecryptedFirecrawlKey,
+    { userId },
+  );
+
   if (userKeyData && userKeyData.key) {
     // Using user's Firecrawl API key
     // Update last used timestamp
-    await ctx.runMutation(internal.firecrawlKeys.updateLastUsed, { keyId: userKeyData.keyId });
-    return new FirecrawlApp({ apiKey: userKeyData.key });
+    await ctx.runMutation(internal.firecrawlKeys.updateLastUsed, {
+      keyId: userKeyData.keyId,
+    });
+    return new FirecrawlApp({ apiKey: userKeyData.key, apiUrl: firecrawlUrl });
   }
-  
+
   // Fallback to environment variable if user hasn't set their own key
-  const apiKey = process.env.FIRECRAWL_API_KEY;
+  const firecrawlUrl = process.env.FIRECRAWL_URL;
   if (!apiKey) {
     console.error("No Firecrawl API key found in environment or user settings");
-    throw new Error("No Firecrawl API key found. Please add your API key in settings.");
+    throw new Error(
+      "No Firecrawl API key found. Please add your API key in settings.",
+    );
   }
   // Using environment Firecrawl API key
-  return new FirecrawlApp({ apiKey });
+  return new FirecrawlApp({ apiKey, apiUrl: firecrawlUrl });
 };
 
 // Scrape a URL and track changes
@@ -34,7 +41,10 @@ export const scrapeUrl = internalAction({
     url: v.string(),
     userId: v.id("users"),
   },
-  handler: async (ctx, args): Promise<{
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{
     success: boolean;
     scrapeResultId: Id<"scrapeResults">;
     changeStatus: string | undefined;
@@ -46,57 +56,65 @@ export const scrapeUrl = internalAction({
     try {
       // Scraping URL with change tracking
       // Scrape with change tracking - markdown is required for changeTracking
-      const result = await firecrawl.scrapeUrl(args.url, {
+      const result = (await firecrawl.scrapeUrl(args.url, {
         formats: ["markdown", "changeTracking"],
         changeTrackingOptions: {
           modes: ["git-diff"], // Enable git-diff to see what changed
-        }
-      }) as any;
+        },
+      })) as any;
 
       if (!result.success) {
         throw new Error(`Firecrawl scrape failed: ${result.error}`);
       }
 
       // Log only essential info, not the full response
-      
+
       // Firecrawl returns markdown directly on the result object
       const markdown = result?.markdown || "";
       const changeTracking = result?.changeTracking;
       const metadata = result?.metadata;
-      
+
       // Log only essential change status
       if (changeTracking?.changeStatus === "changed") {
-        console.log(`Change detected for ${args.url}: ${changeTracking.changeStatus}`);
+        console.log(
+          `Change detected for ${args.url}: ${changeTracking.changeStatus}`,
+        );
       }
 
       // Store the scrape result
-      const scrapeResultId = await ctx.runMutation(internal.websites.storeScrapeResult, {
-        websiteId: args.websiteId,
-        userId: args.userId,
-        markdown: markdown,
-        changeStatus: changeTracking?.changeStatus || "new",
-        visibility: changeTracking?.visibility || "visible",
-        previousScrapeAt: changeTracking?.previousScrapeAt
-          ? new Date(changeTracking.previousScrapeAt).getTime()
-          : undefined,
-        scrapedAt: Date.now(),
-        firecrawlMetadata: metadata,
-        ogImage: metadata?.ogImage || undefined,
-        title: metadata?.title || undefined,
-        description: metadata?.description || undefined,
-        url: args.url, // Pass the actual URL that was scraped
-        diff: changeTracking?.diff ? {
-          text: changeTracking.diff.text || "",
-          json: changeTracking.diff.json || null,
-        } : undefined,
-      }) as Id<"scrapeResults">;
+      const scrapeResultId = (await ctx.runMutation(
+        internal.websites.storeScrapeResult,
+        {
+          websiteId: args.websiteId,
+          userId: args.userId,
+          markdown: markdown,
+          changeStatus: changeTracking?.changeStatus || "new",
+          visibility: changeTracking?.visibility || "visible",
+          previousScrapeAt: changeTracking?.previousScrapeAt
+            ? new Date(changeTracking.previousScrapeAt).getTime()
+            : undefined,
+          scrapedAt: Date.now(),
+          firecrawlMetadata: metadata,
+          ogImage: metadata?.ogImage || undefined,
+          title: metadata?.title || undefined,
+          description: metadata?.description || undefined,
+          url: args.url, // Pass the actual URL that was scraped
+          diff: changeTracking?.diff
+            ? {
+                text: changeTracking.diff.text || "",
+                json: changeTracking.diff.json || null,
+              }
+            : undefined,
+        },
+      )) as Id<"scrapeResults">;
 
       // If content changed, create an alert and send notifications
       if (changeTracking?.changeStatus === "changed" || changeTracking?.diff) {
-        const diffPreview = changeTracking?.diff?.text ? 
-          changeTracking.diff.text.substring(0, 200) + (changeTracking.diff.text.length > 200 ? "..." : "") :
-          "Website content has changed since last check";
-          
+        const diffPreview = changeTracking?.diff?.text
+          ? changeTracking.diff.text.substring(0, 200) +
+            (changeTracking.diff.text.length > 200 ? "..." : "")
+          : "Website content has changed since last check";
+
         await ctx.runMutation(internal.websites.createChangeAlert, {
           websiteId: args.websiteId,
           userId: args.userId,
@@ -117,9 +135,12 @@ export const scrapeUrl = internalAction({
         }
 
         // Get user settings to check if AI analysis is enabled
-        const userSettings = await ctx.runQuery(internal.userSettings.getUserSettingsInternal, {
-          userId: args.userId,
-        });
+        const userSettings = await ctx.runQuery(
+          internal.userSettings.getUserSettingsInternal,
+          {
+            userId: args.userId,
+          },
+        );
 
         // If AI analysis is NOT enabled, send notifications immediately
         if (!userSettings?.aiAnalysisEnabled || !changeTracking?.diff) {
@@ -131,42 +152,60 @@ export const scrapeUrl = internalAction({
 
           if (website && website.notificationPreference !== "none") {
             // Send webhook notification
-            if ((website.notificationPreference === "webhook" || website.notificationPreference === "both") && website.webhookUrl) {
-              await ctx.scheduler.runAfter(0, internal.notifications.sendWebhookNotification, {
-                webhookUrl: website.webhookUrl,
-                websiteId: args.websiteId,
-                websiteName: website.name,
-                websiteUrl: args.url, // Use the actual page URL, not the root website URL
-                scrapeResultId,
-                changeType: "content_changed",
-                changeStatus: changeTracking.changeStatus,
-                diff: changeTracking?.diff,
-                title: metadata?.title,
-                description: metadata?.description,
-                markdown: markdown,
-                scrapedAt: Date.now(),
-              });
-            }
-
-            // Send email notification
-            if (website.notificationPreference === "email" || website.notificationPreference === "both") {
-              // Get user's email configuration
-              const emailConfig = await ctx.runQuery(internal.emailManager.getEmailConfigInternal, {
-                userId: args.userId,
-              });
-              
-              if (emailConfig?.email && emailConfig.isVerified) {
-                await ctx.scheduler.runAfter(0, internal.notifications.sendEmailNotification, {
-                  email: emailConfig.email,
+            if (
+              (website.notificationPreference === "webhook" ||
+                website.notificationPreference === "both") &&
+              website.webhookUrl
+            ) {
+              await ctx.scheduler.runAfter(
+                0,
+                internal.notifications.sendWebhookNotification,
+                {
+                  webhookUrl: website.webhookUrl,
+                  websiteId: args.websiteId,
                   websiteName: website.name,
-                  websiteUrl: args.url,
+                  websiteUrl: args.url, // Use the actual page URL, not the root website URL
+                  scrapeResultId,
                   changeType: "content_changed",
                   changeStatus: changeTracking.changeStatus,
                   diff: changeTracking?.diff,
                   title: metadata?.title,
+                  description: metadata?.description,
+                  markdown: markdown,
                   scrapedAt: Date.now(),
+                },
+              );
+            }
+
+            // Send email notification
+            if (
+              website.notificationPreference === "email" ||
+              website.notificationPreference === "both"
+            ) {
+              // Get user's email configuration
+              const emailConfig = await ctx.runQuery(
+                internal.emailManager.getEmailConfigInternal,
+                {
                   userId: args.userId,
-                });
+                },
+              );
+
+              if (emailConfig?.email && emailConfig.isVerified) {
+                await ctx.scheduler.runAfter(
+                  0,
+                  internal.notifications.sendEmailNotification,
+                  {
+                    email: emailConfig.email,
+                    websiteName: website.name,
+                    websiteUrl: args.url,
+                    changeType: "content_changed",
+                    changeStatus: changeTracking.changeStatus,
+                    diff: changeTracking?.diff,
+                    title: metadata?.title,
+                    scrapedAt: Date.now(),
+                    userId: args.userId,
+                  },
+                );
               }
             }
           }
@@ -249,12 +288,12 @@ export const crawlWebsite = action({
     const firecrawl = await getFirecrawlClient(ctx, userId);
 
     try {
-      const crawlResult = await firecrawl.crawlUrl(args.url, {
+      const crawlResult = (await firecrawl.crawlUrl(args.url, {
         limit: args.limit || 10,
         scrapeOptions: {
           formats: ["markdown", "changeTracking"],
         },
-      }) as any;
+      })) as any;
 
       if (!crawlResult.success) {
         throw new Error(`Firecrawl crawl failed: ${crawlResult.error}`);
