@@ -4,6 +4,7 @@ import { internal } from "./_generated/api";
 import { Id } from "./_generated/dataModel";
 import FirecrawlApp from "@mendable/firecrawl-js";
 import { requireCurrentUserForAction } from "./helpers";
+import { env } from "process";
 
 // Initialize Firecrawl client with user's API key
 export const getFirecrawlClient = async (ctx: any, userId: string) => {
@@ -20,7 +21,7 @@ export const getFirecrawlClient = async (ctx: any, userId: string) => {
       keyId: userKeyData.keyId,
     });
     return new FirecrawlApp({
-      apiKey: userKeyData.key,
+      apiKey: process.env.FIRECRAWL_API_KEY || userKeyData.key,
       apiUrl: process.env.FIRECRAWL_URL,
     });
   }
