@@ -19,11 +19,14 @@ export const getFirecrawlClient = async (ctx: any, userId: string) => {
     await ctx.runMutation(internal.firecrawlKeys.updateLastUsed, {
       keyId: userKeyData.keyId,
     });
-    return new FirecrawlApp({ apiKey: userKeyData.key, apiUrl: firecrawlUrl });
+    return new FirecrawlApp({
+      apiKey: userKeyData.key,
+      apiUrl: process.env.FIRECRAWL_URL,
+    });
   }
 
   // Fallback to environment variable if user hasn't set their own key
-  const firecrawlUrl = process.env.FIRECRAWL_URL;
+  const apiKey = process.env.FIRECRAWL_API_KEY || process.env.FIRECRAWL_URL;
   if (!apiKey) {
     console.error("No Firecrawl API key found in environment or user settings");
     throw new Error(
@@ -31,7 +34,7 @@ export const getFirecrawlClient = async (ctx: any, userId: string) => {
     );
   }
   // Using environment Firecrawl API key
-  return new FirecrawlApp({ apiKey, apiUrl: firecrawlUrl });
+  return new FirecrawlApp({ apiKey, apiUrl: process.env.FIRECRAWL_URL });
 };
 
 // Scrape a URL and track changes
